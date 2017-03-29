@@ -1,16 +1,11 @@
-from enum import Enum
-from threading import Lock
 from nio.block.base import Block
 from nio.util.discovery import discoverable
 from nio.signal.base import Signal
-from nio.properties import Property, PropertyHolder, StringProperty, \
-    IntProperty, BoolProperty, ListProperty, SelectProperty, ObjectProperty \
+from nio.properties import Property, IntProperty, StringProperty, \
     VersionProperty
-from nio.util.threading.spawn import spawn
-from time import sleep
 from subprocess import call
 
-
+@discoverable
 class LowPowerSleepMode(Block):
 
     rtcdevice = StringProperty(title='RTC Device', default='1')
@@ -21,6 +16,8 @@ class LowPowerSleepMode(Block):
 
     def process_signals(self, signals):
         try:
-            call(['rtcwake','-m mem','-d ',self.rtcdevice(),'-s',self.sleeptime()])
+            rtc_device = self.rtcdevice().strip('rtc')
+            call(['rtcwake','-m','mem','-d','rtc'+rtc_device,'-s',str(self.sleeptime())])
         except:
             pass
+        self.notify_signals([Signal({'sleeptime':self.sleeptime()})])
