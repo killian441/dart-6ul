@@ -20,7 +20,7 @@ class GPIODevice():
         self.logger = logger
         self._gpio_lock = Lock()
 
-    def read(self, pin, pull_up_down=None):
+    def read(self, pin):
         """Read bool value from a pin.
 
         Args:
@@ -31,15 +31,9 @@ class GPIODevice():
 
         """
         with self._gpio_lock:
-            # TODO: don't call this every time
-            if pull_up_down is not None:
-                if pull_up_down:
-                    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-                else:
-                    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            else:
-                GPIO.setup(pin, GPIO.IN)
-            value = GPIO.input(pin)
+            gpio_pin = GPIO(pin, "in")
+            value = gpio_pin.read()
+            gpio_pin.close()
             self.logger.debug(
                 "Read value from GPIO pin {}: {}".format(pin, value))
         return bool(value)
@@ -53,13 +47,13 @@ class GPIODevice():
 
         """
         with self._gpio_lock:
-            # TODO: don't call this every time
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, value)
+            gpio_pin = GPIO(pin, "out")
+            gpio_pin.write(value)
+            gpio_pin.close()
             self.logger.debug(
                 "Wrote value to GPIO pin {}: {}".format(pin, value))
 
-    def interrupt(self, callback, pin, pull_up_down=None, bouncetime=200):
+    def interrupt(self, callback, pin, interrupt_trigger=None, timeout=0):
         """Init interrupt callback function for pin.
 
         Args:
@@ -68,25 +62,23 @@ class GPIODevice():
 
         """
         with self._gpio_lock:
-            if pull_up_down is not None:
-                if pull_up_down:
-                    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-                    # Use falling detection since we are pulled up
-                    GPIO.add_event_detect(pin, GPIO.FALLING, bouncetime=bouncetime)
-                else:
-                    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                    # Use rising detection since we are pulled down
-                    GPIO.add_event_detect(pin, GPIO.RISING, bouncetime=bouncetime)
+            gpio_pin = GPIO(pin, "preserve")
+            if gpio_pin.supports_interrupts:
+                gpio_pin.direction = "in"
+                gpio_pin.edge = interrupt_trigger
+                if gpio_pin.poll(timeout):
+                    # Enter callback function
+                    pass
+                gpio_pin.edge = "none" #need to set to none inorder to reuse pin for anything else
             else:
-                GPIO.setup(pin, GPIO.IN)
-                GPIO.add_event_detect(pin, GPIO.BOTH, bouncetime=bouncetime)
-            GPIO.add_event_callback(pin, callback)
+                self.logger.error("GPIO pin {} does not support interrupts".format(pin))
+            
             self.logger.debug(
                 "Set interrupt callback of GPIO pin {}".format(pin))
 
 
     def close(self):
         try:
-            GPIO.cleanup()
+            pass
         except:
             self.logger.warning("Failed to close GPIO", exc_info=True)

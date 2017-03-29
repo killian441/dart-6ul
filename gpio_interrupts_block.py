@@ -8,16 +8,16 @@ from nio.properties import IntProperty, VersionProperty, SelectProperty, \
 from .gpio_device import GPIODevice
 
 
-class PullUpDownOptions(Enum):
-    PUD_UP = True
-    PUD_DOWN = False
-    PUD_OFF = None
+class TriggerOptions(Enum):
+    T_RISING = 'rising'
+    T_FALLING = 'falling'
+    T_BOTH = 'both'
 
 
-class PullUpDown(PropertyHolder):
-    default = SelectProperty(PullUpDownOptions,
-                             title="Default Pull Resistor",
-                             default=PullUpDownOptions.PUD_OFF)
+class Trigger(PropertyHolder):
+    default = SelectProperty(TriggerOptions,
+                             title="Interrupt Trigger",
+                             default=TriggerOptions.T_BOTH)
     # TODO: add ability to select base on pin number
 
 
@@ -26,9 +26,9 @@ class GPIOInterrupts(Block):
 
     pin = IntProperty(default=0, title="Pin Number")
     version = VersionProperty('0.1.0')
-    pull_up_down = ObjectProperty(PullUpDown,
-                                  title="Pull Resistor Up/Down",
-                                  default=PullUpDown())
+    interrupt_trigger = ObjectProperty(Trigger,
+                                  title="Trigger on which edge:",
+                                  default=Trigger())
 
     def __init__(self):
         super().__init__()
@@ -39,7 +39,7 @@ class GPIOInterrupts(Block):
         self._gpio = GPIODevice(self.logger)
         # TODO: allow more than one pin to be configured per block
         self._gpio.interrupt(
-            self._callback, self.pin(), self.pull_up_down().default().value)
+            self._callback, self.pin(), self.interrupt_trigger().default().value)
 
     def stop(self):
         self._gpio.close()

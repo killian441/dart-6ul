@@ -7,6 +7,8 @@ from nio.properties import IntProperty, VersionProperty, SelectProperty, \
 from .gpio_device import GPIODevice
 
 
+"""
+# No pull-up/down values in periphery library
 class PullUpDownOptions(Enum):
     PUD_UP = True
     PUD_DOWN = False
@@ -18,7 +20,7 @@ class PullUpDown(PropertyHolder):
                              title="Default Pull Resistor",
                              default=PullUpDownOptions.PUD_OFF)
     # TODO: add ability to select base on pin number
-
+"""
 
 @discoverable
 class GPIORead(Block):
@@ -48,7 +50,7 @@ class GPIORead(Block):
 
     def _read_gpio_pin(self, pin):
         try:
-            return self._gpio.read(pin, self.pull_up_down().default().value)
+            return self._gpio.read(pin)
         except:
             self.logger.warning("Failed to read gpio pin: {}".format(pin),
                                 exc_info=True)
