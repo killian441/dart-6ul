@@ -47,8 +47,11 @@ class GPIODevice():
 
         """
         with self._gpio_lock:
-            gpio_pin = GPIO(pin, "out")
-            gpio_pin.write(value)
+            gpio_pin = GPIO(pin, "preserve")
+            if value:
+                gpio_pin.direction = "high"
+            else:
+                gpio_pin.direction = "low"
             gpio_pin.close()
             self.logger.debug(
                 "Wrote value to GPIO pin {}: {}".format(pin, value))
