@@ -484,21 +484,3 @@ class AquaCheck(Block):
                 except:
                     self.logger.exception("Signal is no valid: {}".format(results))
 
-    def notify_signals(self, signals, output_id=None):
-        """Notify signals to router.
-        This is the method the block should call whenever it would like
-        to "output" signals for the router to send downstream.
-        Args:
-            signals (list): A list of signals to notify to the router
-            output_id: The identifier of the output terminal to notify the
-                signals on
-        The signals argument is handled as follows:
-            - a dictionary is not allowed
-            - if a single signal is notified not as an iterable, it will get
-            wrapped inside a list before forwarding to block router.
-        Raises:
-            TypeError: when signals are not instances of class Signal
-        """
-        pass
-
-
