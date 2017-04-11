@@ -3,7 +3,8 @@ from nio.util.discovery import discoverable
 from nio.signal.base import Signal
 from nio.properties import Property, IntProperty, StringProperty, \
     VersionProperty
-from subprocess import call
+from subprocess import call, check_call
+import time
 
 @discoverable
 class LowPowerSleepMode(Block):
@@ -15,9 +16,15 @@ class LowPowerSleepMode(Block):
     """Upon receipt of a signal, sleep"""
 
     def process_signals(self, signals):
+        t = time.time()
         try:
             rtc_device = self.rtcdevice().strip('rtc')
             call(['rtcwake','-m','mem','-d','rtc'+rtc_device,'-s',str(self.sleeptime())])
+            try:
+                check_call(['hwclock','--hctosys'])
+            except CalledProcessError as err:
+                self.logger.warning("An error occured while resetting the clock: {}".format(err))
         except:
-            pass
-        self.notify_signals([Signal({'sleeptime':self.sleeptime()})])
+            self.logger.exception("An error occurred while trying to sleep: {}".format(sys.exc_info()[0]))
+        t = time.time() - t
+        self.notify_signals([Signal({'sleeptime':t})])
