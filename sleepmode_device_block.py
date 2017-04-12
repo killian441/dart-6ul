@@ -3,7 +3,8 @@ from nio.util.discovery import discoverable
 from nio.signal.base import Signal
 from nio.properties import Property, IntProperty, StringProperty, \
     VersionProperty
-from subprocess import call, check_call
+from subprocess import call, check_call, CalledProcessError
+import sys
 import time
 
 @discoverable
