@@ -476,11 +476,13 @@ class AquaCheck(Block):
         """
         for signal in signals:
             if self.AQ.pollProbe(0) == 0:
-                value = self.AQ.sdiMoisture
+                #value = self.AQ.sdiMoisture
+                value = self.AQ.dataMoisture
                 results = {self.signalName():value}
                 self.logger.debug("Got results: {}".format(results))
                 try:
                     self.notify_signals([Signal(results)])
                 except:
-                    self.logger.exception("Signal is no valid: {}".format(results))
+                    self.logger.exception("Signal is not valid:"
+                                          " {}".format(results))
 
