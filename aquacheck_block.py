@@ -4,44 +4,20 @@ from nio.util.discovery import discoverable
 from nio.properties import StringProperty, BoolProperty, IntProperty
 from nio.properties import VersionProperty
 import time
-from periphery import GPIO
 import sched
 import bisect
 import re
 import serial
 import tenacity
 
-#/* ======================== Arduino SDI-12 =================================
+#/* ================== Based on Arduino SDI-12 Code =========================
 #*/
-
-
-
-#/* =========== 1. Buffer Setup ============================================
-#*/
-
-# Helper Functions:
-#parity_is_odd - returns 0 if even number of bits, 1 if odd number
-def parity_isOdd(int_type):
-  parity = 0
-  while (int_type):
-    parity = ~parity
-    int_type = int_type & (int_type - 1)
-  return(parity&1)
-
-def delayMicroseconds(microDelay):
-  start = time.perf_counter()
-  _microDelay = microDelay / 1000000.0
-  now = time.perf_counter()
-  while (now-start < _microDelay):
-    now = time.perf_counter()
 
 def debugThis(msg):
   if True:
     print(msg)
   else:
     pass
-
-
 
 # /* =========== 2. Data Line States ===============================
 # */
@@ -61,8 +37,14 @@ class SDI12:
   def __init__(self, uartPort):
     self._activeObject = False
     self._bufferOverflow = False
-    self.uart = serial.Serial(port=None, baudrate=1200, bytesize=serial.SEVENBITS, parity=serial.PARITY_EVEN, stopbits=serial.STOPBITS_ONE, timeout=3.5)
-    self.uart.port = uartPort  # Uart is not opened if initialized with port=None and port defined elsewhere, see serial documentation
+    self.uart = serial.Serial(port=None, baudrate=1200,
+                              bytesize=serial.SEVENBITS, 
+                              parity=serial.PARITY_EVEN, 
+                              stopbits=serial.STOPBITS_ONE, 
+                              timeout=3.5)
+    self.uart.port = uartPort  # Uart is not opened automatically if
+                               # initialized with port=None and port 
+                               # defined elsewhere, see serial documentation
     self.state = "DISABLED"
     self._rxBuffer = [0]*self._BUFFER_SIZE   # # #// 1.2 - buff for incoming
     self._rxBufferHead = 0              # # #// 1.3 - index of buff head
@@ -96,7 +78,7 @@ class SDI12:
   def forceHold(self):
     self.setState("HOLDING")
 
-# /* ======= 3. Constructor, Destructor, SDI12.begin(), and SDI12.end()  =======
+# /* ===== 3. Constructor, Destructor, SDI12.begin(), and SDI12.end()  ======
 # */
 
 # # #//  3.3 Begin
@@ -108,7 +90,7 @@ class SDI12:
   def end(self):
     self.setState("DISABLED")
 
-# /* ============= 4. Waking up, and talking to, the sensors. ===================
+# /* ========= 4. Waking up, and talking to, the sensors. ===================
 # */ 
 
 #  # #// 4.1 - this function wakes up the entire sensor bus
