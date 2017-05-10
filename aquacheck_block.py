@@ -3,6 +3,7 @@ from nio.signal.base import Signal
 from nio.util.discovery import discoverable
 from nio.properties import StringProperty, BoolProperty, IntProperty
 from nio.properties import VersionProperty
+from enum import Enum
 import time
 import sched
 import bisect
@@ -19,24 +20,26 @@ def debugThis(msg):
   else:
     pass
 
-# /* =========== 2. Data Line States ===============================
-# */
-
-#  # #// 2.1 - sets the state of the SDI-12 object. 
+# Class for the SDI-12 object. 
 class SDI12:
-  _BUFFER_SIZE = 64         # # #// 0.2 max RX buffer size    
-  SPACING = 830             # # #// 0.8 bit timing in microseconds
-  POLLING = 1               # # #// 0.9 to poll or not to poll?
+  _BUFFER_SIZE = 64           # max RX buffer size    
+  SPACING = 830               # bit timing in microseconds
 
-  DISABLED = 0              # # #// 0.3 value for "DISABLED" state
-  ENABLED = 1               # # #// 0.4 value for "ENABLED" state
-  HOLDING = 2               # # #// 0.5 value for "DISABLED" state
-  TRANSMITTING = 3          # # #// 0.6 value for "TRANSMITTING" state
-  LISTENING = 4             # # #// 0.7 value for "LISTENING" state
+  class SDIState(Enum):
+    DISABLED = 0              # value for "DISABLED" state
+    ENABLED = 1               # value for "ENABLED" state
+    HOLDING = 2               # value for "DISABLED" state
+    TRANSMITTING = 3          # value for "TRANSMITTING" state
+    LISTENING = 4             # value for "LISTENING" state
 
-  def __init__(self, uartPort):
+  def __init__(self, uartPort, sendMarking=True):
     self._activeObject = False
     self._bufferOverflow = False
+    self.state = self.SDIState.DISABLED
+    self._rxBuffer = [0]*self._BUFFER_SIZE   # # #// 1.2 - buff for incoming
+    self._rxBufferHead = 0              # # #// 1.3 - index of buff head
+    self._rxBufferTail = 0              # # #// 1.4 - index of buff tail
+    self._sendMarking = sendMarking
     self.uart = serial.Serial(port=None, baudrate=1200,
                               bytesize=serial.SEVENBITS, 
                               parity=serial.PARITY_EVEN, 
@@ -45,144 +48,134 @@ class SDI12:
     self.uart.port = uartPort  # Uart is not opened automatically if
                                # initialized with port=None and port 
                                # defined elsewhere, see serial documentation
-    self.state = "DISABLED"
-    self._rxBuffer = [0]*self._BUFFER_SIZE   # # #// 1.2 - buff for incoming
-    self._rxBufferHead = 0              # # #// 1.3 - index of buff head
-    self._rxBufferTail = 0              # # #// 1.4 - index of buff tail
-    self.setState("DISABLED")
+    self.setState(self.SDIState.DISABLED)
 
+# ==================== Data Line States ===============================
+  #Set state
   def setState(self, state):
-    state = state.upper()
-    if(state == "HOLDING"):
+    if(state == self.SDIState.HOLDING):
       #set dataPin to output and low
       if not self.uart.is_open:
         self.uart.open()
-      self.state = "HOLDING"
-    elif(state == "TRANSMITTING"):
+      self.state = self.SDIState.HOLDING
+    elif(state == self.SDIState.TRANSMITTING):
       #set dataPin to output, prevent interrupts
       if not self.uart.is_open:
         self.uart.open()
-      self.state = "TRANSMITTING"
-    elif(state == "LISTENING"):
+      self.state = self.SDIState.TRANSMITTING
+    elif(state == self.SDIState.LISTENING):
       #set dataPin low and input
       if not self.uart.is_open:
         self.uart.open()
-      self.state = "LISTENING"
-    else:            # # #// implies state=="DISABLED" 
+      self.state = self.SDIState.LISTENING
+    else:           # implies state=="DISABLED" 
       #set dataPin low and input
       if self.uart.is_open:
         self.uart.close()
-      self.state = "DISABLED"
+      self.state = self.SDIState.DISABLED
 
-# # #// 2.2 - forces a "HOLDING" state. 
+  # Force a "HOLDING" state. 
   def forceHold(self):
-    self.setState("HOLDING")
+    self.setState(self.SDIState.HOLDING)
 
-# /* ===== 3. Constructor, Destructor, SDI12.begin(), and SDI12.end()  ======
-# */
+# ===== Constructor, Destructor, SDI12.begin(), and SDI12.end()  ======
 
-# # #//  3.3 Begin
+  # Begin
   def begin(self): 
-    self.setState("HOLDING")
+    self.setState(self.SDIState.HOLDING)
     self.setActive() 
 
-# # #//  3.4 End
+  # End
   def end(self):
-    self.setState("DISABLED")
+    self.setState(self.SDIState.DISABLED)
 
-# /* ========= 4. Waking up, and talking to, the sensors. ===================
-# */ 
+# ========== Waking up, and talking to, the sensors. ================== 
 
-#  # #// 4.1 - this function wakes up the entire sensor bus
+  # This function wakes up the entire sensor bus
   def wakeSensors(self):
-    self.setState("TRANSMITTING"); 
-    self.uart.baudrate = 600
-    self.uart.write(b'\x00')
-    self.uart.baudrate = 1200
+    self.setState(self.SDIState.TRANSMITTING); 
+    if self._sendMarking:
+      self.uart.baudrate = 600
+      self.uart.write(b'\x00')
+      self.uart.baudrate = 1200
 
-#  # #// 4.2 - this function writes a character out on the data line
-  def genChar(self,out):
-    #Unused now that we are using a uart
-    pass
-
-# # #// 4.3 - this function sends out the characters of the String cmd, one by one
+  # This function sends out the characters of the String cmd, one by one
   def sendCommand(self, cmd):
-    self.wakeSensors();                         # # #// wake up sensors
-    self.uart.write(cmd.encode())   # This sends the command as byte array, since RX is connected to TX we will see command echoed in input buffer
-    self.uart.reset_input_buffer()  # Ideally this flushes echoed command from input buffer, but there is a delay and it probably doesn't
+    self.wakeSensors();             # Wake up sensors
+    self.uart.write(cmd.encode())   # This sends the command as byte array, 
+                                    #  since RX is connected to TX we will see
+                                    #  command echoed in input buffer
+    self.uart.reset_input_buffer()  # Ideally this flushes echoed command from
+                                    #  input buffer, but there is a delay and
+                                    #  it probably doesn't
+    self.listen(1, cmd=cmd);        # 16.7ms is the max time for a response to
+                                    #  be received after a command is sent    
+                                    # However Command gets buffered in the
+                                    #  UART so this timing doesn't work
+                                    #  perfectly
 
-    self.listen(16700, cmd=cmd);  #  # #// 16.7ms is the max time for a response to be received 
-                         #  # #//    after a command is sent    
-                         # However Command gets buffered in the UART so this timing doesn't work perfectly
+  # This command reads the UART RX buffer for responce
+  def listen(self, listenTimeout, cmd=None): # Time to wait in seconds
+    self.setState(self.SDIState.LISTENING)
+    self.uart.timeout = (listenTimeout)     # Listen for upto 'listenTimeout'
+                                            #  seconds after each char for a 
+                                            #  subsequent char
 
-# /* Here is polling code
-#   This command will poll the bus for data coming back rather than use interrupts
-# */
-  def listen(self, listenTimeout, cmd=''): # # #//time to wait in microseconds
-    self.setState("LISTENING")
-    self.uart.timeout = (1)     # Listen for upto 1 second after each char for a subsequent char
-
-    self.uart.read(len(cmd)+1)  # Throw out echoed command (Additional chars will still be stored in RX buffer)
+    self.uart.read(len(cmd)+1)              # Throw out echoed command 
+                                            #  (Additional chars will still 
+                                            #  be stored in RX buffer)
     dataRaw = [self.uart.read()]
     while dataRaw[-1] is not b'':
       if ((self._rxBufferTail + 1) % self._BUFFER_SIZE == self._rxBufferHead):  #Buffer full?
         self._bufferOverflow = True; 
-      else:              # #// 7.2.8 - Save char, advance tail. 
+      else:                                 # Save char, advance tail. 
         self._rxBuffer[self._rxBufferTail] = dataRaw[-1] 
         self._rxBufferTail = (self._rxBufferTail + 1) % self._BUFFER_SIZE;
       dataRaw.append(self.uart.read())
     else:
       dataRaw.pop()
 
-    
-#  # #// Reads a new character. 
-  def receiveChar(self):
-  #Unused now that we are using a UART
-    pass
+# =============== Reading from the SDI-12 object.  ====================
 
-# /* ============= 5. Reading from the SDI-12 object.  ===================
-# */
-
-#  # #// 5.1 - reveals the number of characters available in the buffer
+  # Reveals the number of characters available in the buffer
   def available(self):
     if(self._bufferOverflow):
       return -1; 
     return (self._rxBufferTail + self._BUFFER_SIZE - self._rxBufferHead) % self._BUFFER_SIZE;
 
-#  # #// 5.2 - reveals the next character in the buffer without consuming
+  # Reveals the next character in the buffer without consuming
   def peek(self):
     if (self._rxBufferHead == self._rxBufferTail):
-      return -1;     # # #// Empty buffer? If yes, -1
-    return self._rxBuffer[self._rxBufferHead];              # # #// Otherwise, read from "head"
+      return -1;                                  # Empty buffer? If yes, -1
+    return self._rxBuffer[self._rxBufferHead];    # Otherwise, read from "head"
 
-#  # #// 5.3 - a public function that clears the buffer contents and
-#  # #// resets the status of the buffer overflow. 
+  # A public function that clears the buffer contents and
+  # resets the status of the buffer overflow. 
   def flush(self):
     self._rxBufferHead = 0
     self._rxBufferTail = 0;
     self._bufferOverflow = False; 
 
-#  # #// 5.4 - reads in the next character from the buffer (and moves the index ahead)
+  # Reads in the next character from the buffer (and moves the index ahead)
   def read(self):
-    self._bufferOverflow = False;           # # #//reading makes room in the buffer
+    self._bufferOverflow = False;                   # Reading makes room in the buffer
     if (self._rxBufferHead == self._rxBufferTail):
-      return -1;     # # #// Empty buffer? If yes, -1
-    nextChar = self._rxBuffer[self._rxBufferHead];  # # #// Otherwise, grab char at head
-    self._rxBufferHead = (self._rxBufferHead + 1) % self._BUFFER_SIZE;      # # #// increment head
-    return nextChar;                                        # # #// return the char
+      return -1;                                    # Empty buffer? If yes, -1
+    nextChar = self._rxBuffer[self._rxBufferHead];  # Otherwise, grab char at head
+    self._rxBufferHead = (self._rxBufferHead + 1) % self._BUFFER_SIZE;      # Increment head
+    return nextChar;                                # Return the char
 
-# /* ============= 6. Using more than one SDI-12 object.  ===================
-# */
+# ============= Using more than one SDI-12 object.  ===================
 
-#  # #// 6.1 - a method for setting the current object as the active object
+  # A method for setting the current object as the active object
   def setActive(self):
     if (self._activeObject != True):
-      self.setState("HOLDING"); 
+      self.setState(self.SDIState.HOLDING); 
       self._activeObject = True;
       return True;
     return False;
 
-#  # #// 6.2 - a method for checking if this object is the active object
+  # A method for checking if this object is the active object
   def isActive(self):
     return self._activeObject
 
@@ -436,6 +429,8 @@ class AquaCheck(Block):
 
     signalName = StringProperty(title='Signal Name', default='default')
     portNumber = StringProperty(title='UART Port', default='/dev/ttymxc4')
+    sendMarking = BoolProperty(default=False, title='Send Marking')
+    rs485 = BoolProperty(default=False, title='Hardware RS485 Port')
     version = VersionProperty('0.0.1')
 
     def configure(self,context):
