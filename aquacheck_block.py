@@ -33,6 +33,7 @@ class CirBuffer:
       self.data.append(x)
 
   def read(self):
+    self._bufferOverflow = False
     try:
       return self.data.pop(0)
     except:
@@ -54,6 +55,11 @@ class CirBuffer:
     else:
       return len(self.data)
 
+  def get(self):
+    datacopy = self.data.copy()
+    self.data = []
+    return datacopy
+
 # Class for the SDI-12 object. 
 class SDI12:
   _BUFFER_SIZE = 64           # max RX buffer size    
@@ -69,9 +75,9 @@ class SDI12:
   def __init__(self, uartPort, sendMarking=True):
     self._activeObject = False
     self._bufferOverflow = False
-    self._rxBuffer = [0]*self._BUFFER_SIZE  # Buff for incoming
-    self._rxBufferHead = 0                  # Index of buff head
-    self._rxBufferTail = 0                  # Index of buff tail
+    self._rxBuffer = CirBuffer(_BUFFER_SIZE)  # Buff for incoming
+    self._rxBufferHead = 0                    # Index of buff head
+    self._rxBufferTail = 0                    # Index of buff tail
     self._sendMarking = sendMarking
     self.state = self.SDIState.DISABLED
     self.uart = serial.Serial(port=None, baudrate=1200,
@@ -155,54 +161,40 @@ class SDI12:
                                             #  seconds after each char for a 
                                             #  subsequent char
 
-    self.uart.read(len(cmd)+1)              # Throw out echoed command 
+#    self.uart.read(len(cmd)+1)              # Throw out echoed command 
                                             #  (Additional chars will still 
                                             #  be stored in RX buffer)
     dataRaw = [self.uart.read()]
     while dataRaw[-1] is not b'':
-      if ((self._rxBufferTail + 1) % self._BUFFER_SIZE == self._rxBufferHead):  #Buffer full?
-        self._bufferOverflow = True; 
-      else:                                 # Save char, advance tail. 
-        self._rxBuffer[self._rxBufferTail] = dataRaw[-1] 
-        self._rxBufferTail = (self._rxBufferTail + 1) % self._BUFFER_SIZE;
+      self._rxBuffer.append(dataRaw[-1])
       dataRaw.append(self.uart.read())
     else:
       dataRaw.pop()
-#    if cmd is not '' and (self._rxBufferHead + len(cmd) + 1) % self._BUFFER_SIZE :
-#      if self._rxBuffer[self._rxBufferHead:self._rxBufferHead+len(cmd)] == cmd.encode():
-#        self._rxBufferHead = self._rxBufferHead + len(cmd) + 1 % self._BUFFER_SIZE
-#      elif: self._rxBuffer[self._rxBufferHead+1:self._rxBufferHead+len(cmd)+1] == cmd.encode():
-
+    if cmd is not '':
+      rxdata = self._rxBuffer.get()
+      for x in range(0,2):
+        if bytes(rxdata[x:len(cmd)+x]) == cmd.encode():
+          for datum in rxdata[len(cmd)+x:]:
+            self._rxBuffer.append(datum)
 
 # ============ Reading from the SDI-12 object buffer.  ================
 
   # Reveals the number of characters available in the buffer
   def available(self):
-    if(self._bufferOverflow):
-      return -1; 
-    return (self._rxBufferTail + self._BUFFER_SIZE - self._rxBufferHead) % self._BUFFER_SIZE;
+    return self._rxBuffer.available()
 
   # Reveals the next character in the buffer without consuming
   def peek(self):
-    if (self._rxBufferHead == self._rxBufferTail):
-      return -1;                                  # Empty buffer? If yes, -1
-    return self._rxBuffer[self._rxBufferHead];    # Otherwise, read from "head"
+    return self._rxBuffer.peek()    
 
   # A public function that clears the buffer contents and
   # resets the status of the buffer overflow. 
   def flush(self):
-    self._rxBufferHead = 0
-    self._rxBufferTail = 0;
-    self._bufferOverflow = False; 
+    self._rxBuffer.flush()
 
   # Reads in the next character from the buffer (and moves the index ahead)
   def read(self):
-    self._bufferOverflow = False;                   # Reading makes room in the buffer
-    if (self._rxBufferHead == self._rxBufferTail):
-      return -1;                                    # Empty buffer? If yes, -1
-    nextChar = self._rxBuffer[self._rxBufferHead];  # Otherwise, grab char at head
-    self._rxBufferHead = (self._rxBufferHead + 1) % self._BUFFER_SIZE;      # Increment head
-    return nextChar;                                # Return the char
+    return self._rxBuffer.read()
 
 # ============= Using more than one SDI-12 object.  ===================
 
