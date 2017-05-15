@@ -140,6 +140,7 @@ class SDI12:
     self.uart.write(cmd.encode())   # This sends the command as byte array, 
                                     #  since RX is connected to TX we will see
                                     #  command echoed in input buffer
+    self.uart.reset_input_buffer()  # Needed, not exactly sure why
     self.listen(1, cmd=cmd);        # 16.7ms is the max time for a response to
                                     #  be received after a command is sent.    
                                     #  However Command gets buffered in the
