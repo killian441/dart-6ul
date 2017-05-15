@@ -75,9 +75,7 @@ class SDI12:
   def __init__(self, uartPort, sendMarking=True):
     self._activeObject = False
     self._bufferOverflow = False
-    self._rxBuffer = CirBuffer(_BUFFER_SIZE)  # Buff for incoming
-    self._rxBufferHead = 0                    # Index of buff head
-    self._rxBufferTail = 0                    # Index of buff tail
+    self._rxBuffer = CirBuffer(self._BUFFER_SIZE)  # Buff for incoming
     self._sendMarking = sendMarking
     self.state = self.SDIState.DISABLED
     self.uart = serial.Serial(port=None, baudrate=1200,
@@ -94,25 +92,22 @@ class SDI12:
   #Set state
   def setState(self, state):
     if(state == self.SDIState.HOLDING):
-      #set dataPin to output and low
       if not self.uart.is_open:
         self.uart.open()
       self.state = self.SDIState.HOLDING
     elif(state == self.SDIState.TRANSMITTING):
-      #set dataPin to output, prevent interrupts
       if not self.uart.is_open:
         self.uart.open()
       self.state = self.SDIState.TRANSMITTING
     elif(state == self.SDIState.LISTENING):
-      #set dataPin low and input
       if not self.uart.is_open:
         self.uart.open()
       self.state = self.SDIState.LISTENING
     else:           # implies state=="DISABLED" 
-      #set dataPin low and input
       if self.uart.is_open:
         self.uart.close()
       self.state = self.SDIState.DISABLED
+      self._activeObject = False
 
   # Force a "HOLDING" state. 
   def forceHold(self):
@@ -145,37 +140,34 @@ class SDI12:
     self.uart.write(cmd.encode())   # This sends the command as byte array, 
                                     #  since RX is connected to TX we will see
                                     #  command echoed in input buffer
-    self.uart.reset_input_buffer()  # Ideally this flushes echoed command from
-                                    #  input buffer, but there is a delay and
-                                    #  it probably doesn't
     self.listen(1, cmd=cmd);        # 16.7ms is the max time for a response to
                                     #  be received after a command is sent.    
                                     #  However Command gets buffered in the
                                     #  UART so this timing doesn't work
                                     #  perfectly
 
-  # This command reads the UART RX buffer for responce
+  # This command reads the UART RX buffer for response
   def listen(self, listenTimeout, cmd=''): # Time to wait in seconds
     self.setState(self.SDIState.LISTENING)
     self.uart.timeout = (listenTimeout)     # Listen for upto 'listenTimeout'
                                             #  seconds after each char for a 
                                             #  subsequent char
-
-#    self.uart.read(len(cmd)+1)              # Throw out echoed command 
-                                            #  (Additional chars will still 
-                                            #  be stored in RX buffer)
     dataRaw = [self.uart.read()]
     while dataRaw[-1] is not b'':
       self._rxBuffer.append(dataRaw[-1])
       dataRaw.append(self.uart.read())
     else:
       dataRaw.pop()
+
+    #Here we subtract the cmd from the response, if applicable
     if cmd is not '':
       rxdata = self._rxBuffer.get()
       for x in range(0,2):
-        if bytes(rxdata[x:len(cmd)+x]) == cmd.encode():
-          for datum in rxdata[len(cmd)+x:]:
-            self._rxBuffer.append(datum)
+        if b''.join(rxdata[x:len(cmd)+x]) == cmd.encode():
+          rxdata = rxdata[len(cmd)+x:]
+          break
+      for datum in rxdata:
+        self._rxBuffer.append(datum)
 
 # ============ Reading from the SDI-12 object buffer.  ================
 
