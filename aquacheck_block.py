@@ -20,6 +20,40 @@ def debugThis(msg):
   else:
     pass
 
+class CirBuffer:
+  def __init__(self,size):
+    self._maxsize = size
+    self._bufferOverflow = False
+    self.data = []
+
+  def append(self,x):
+    if len(self.data)+1 > self._maxsize:
+      self._bufferOverflow = True
+    else:
+      self.data.append(x)
+
+  def read(self):
+    try:
+      return self.data.pop(0)
+    except:
+      return -1
+
+  def flush(self):
+    self.data = []
+    self._bufferOverflow = False
+
+  def peek(self):
+    try:
+      return self.data[0]
+    except:
+      return -1
+
+  def available(self):
+    if(self._bufferOverflow):
+      return -1;
+    else:
+      return len(self.data)
+
 # Class for the SDI-12 object. 
 class SDI12:
   _BUFFER_SIZE = 64           # max RX buffer size    
@@ -35,11 +69,11 @@ class SDI12:
   def __init__(self, uartPort, sendMarking=True):
     self._activeObject = False
     self._bufferOverflow = False
-    self.state = self.SDIState.DISABLED
-    self._rxBuffer = [0]*self._BUFFER_SIZE   # # #// 1.2 - buff for incoming
-    self._rxBufferHead = 0              # # #// 1.3 - index of buff head
-    self._rxBufferTail = 0              # # #// 1.4 - index of buff tail
+    self._rxBuffer = [0]*self._BUFFER_SIZE  # Buff for incoming
+    self._rxBufferHead = 0                  # Index of buff head
+    self._rxBufferTail = 0                  # Index of buff tail
     self._sendMarking = sendMarking
+    self.state = self.SDIState.DISABLED
     self.uart = serial.Serial(port=None, baudrate=1200,
                               bytesize=serial.SEVENBITS, 
                               parity=serial.PARITY_EVEN, 
@@ -109,13 +143,13 @@ class SDI12:
                                     #  input buffer, but there is a delay and
                                     #  it probably doesn't
     self.listen(1, cmd=cmd);        # 16.7ms is the max time for a response to
-                                    #  be received after a command is sent    
-                                    # However Command gets buffered in the
+                                    #  be received after a command is sent.    
+                                    #  However Command gets buffered in the
                                     #  UART so this timing doesn't work
                                     #  perfectly
 
   # This command reads the UART RX buffer for responce
-  def listen(self, listenTimeout, cmd=None): # Time to wait in seconds
+  def listen(self, listenTimeout, cmd=''): # Time to wait in seconds
     self.setState(self.SDIState.LISTENING)
     self.uart.timeout = (listenTimeout)     # Listen for upto 'listenTimeout'
                                             #  seconds after each char for a 
@@ -134,8 +168,13 @@ class SDI12:
       dataRaw.append(self.uart.read())
     else:
       dataRaw.pop()
+#    if cmd is not '' and (self._rxBufferHead + len(cmd) + 1) % self._BUFFER_SIZE :
+#      if self._rxBuffer[self._rxBufferHead:self._rxBufferHead+len(cmd)] == cmd.encode():
+#        self._rxBufferHead = self._rxBufferHead + len(cmd) + 1 % self._BUFFER_SIZE
+#      elif: self._rxBuffer[self._rxBufferHead+1:self._rxBufferHead+len(cmd)+1] == cmd.encode():
 
-# =============== Reading from the SDI-12 object.  ====================
+
+# ============ Reading from the SDI-12 object buffer.  ================
 
   # Reveals the number of characters available in the buffer
   def available(self):
