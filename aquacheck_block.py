@@ -226,7 +226,14 @@ class SDI12AquaCheck:
 #  *    rs485       - using hardware rs485?
 #  */ 
   def __init__(self, dataBus, sendMarking=True, rs485=False):
-    self.dataBus = dataBus
+    self.dataBus = serial.Serial(port=None, baudrate=1200,
+                                 bytesize=serial.SEVENBITS, 
+                                 parity=serial.PARITY_EVEN, 
+                                 stopbits=serial.STOPBITS_ONE, 
+                                 timeout=3.5)
+    self.dataBus.port    = dataBus
+    if rs485:
+      self.dataBus.rs485_mode = serial.rs485.RS485Settings()
     self.moistureRaw     = ""     # Raw response of probe with all sensors
     self.moistureData    = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     self.temperatureRaw  = ""
@@ -387,13 +394,13 @@ class SDI12AquaCheck:
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _gatherFirstData(self, dataBackup):
     self._issueFirstData()
-    dataBackup[0:3] = 
+    dataBackup[0:3] = \
         [[self.dataResponse0], [self.dataResponse1], [self.dataResponse2]]
     
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _gatherSecondData(self, dataBackup):
     self._issueSecondData()
-    dataBackup[3:6] = 
+    dataBackup[3:6] = \
         [[self.dataResponse3], [self.dataResponse4], [self.dataResponse5]]
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
