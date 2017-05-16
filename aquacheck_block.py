@@ -258,28 +258,28 @@ class SDI12AquaCheck:
 #  *    
 #  */
   def pollProbe(self, readingType, address = '0'):
-    sdiCommand = ""            # String to send, largest command that can be sent is aMC1! (crc not implemented in aquaCheck)
-    self.sdiResponse   = ""    # String for generic responses, max value in response to a D command (non concurrent) is 35
-    self.dataResponse0 = ""    # Due to a compiler bug these can't all be in an array and used with sscanf
-    self.dataResponse1 = ""    # Also Arduino sscanf doesn't support floats, so either I mess with the compiler
-    self.dataResponse2 = ""    # Or I use atof on a char array
-    self.dataResponse3 = ""    
+    sdiCommand = ""
+    self.sdiResponse   = ""
+    self.dataResponse0 = ""
+    self.dataResponse1 = ""
+    self.dataResponse2 = ""
+    self.dataResponse3 = ""
     self.dataResponse4 = ""
     self.dataResponse5 = ""
-    self.sdiAddress      = -1  # Address of the sensor responding, easier to work with as a char vs as an int
-    self.sdiTimeToCheck  = -1  # Time to wait before requesting data, in seconds
-    self.sdiMeasurements = -1  # Number of measurements expected, should always be 6 for AquaCheck
+    self.sdiAddress      = -1  # Address of the sensor responding
+    self.sdiTimeToCheck  = -1  # Time to wait before requesting data
+    self.sdiMeasurements = -1  # Number of measurements expected
     
     self.aquaCheckSDI12.flush()
 
     if(readingType == 0):
       self.moistureRaw = ""
-      sdiCommand = str(address) + "M0!"
       self.moistureData = [0.0]*6
+      sdiCommand = str(address) + "M0!"
     elif(readingType == 1):
       self.temperatureRaw = ""
-      sdiCommand = str(address) + "M1!"
       self.temperatureData = [0.0]*6
+      sdiCommand = str(address) + "M1!"
     else:
       return -1
 
@@ -307,37 +307,43 @@ class SDI12AquaCheck:
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueCommand(self, sdiCommand):
     self.sdiResponse = "" 
-    self.aquaCheckSDI12.sendCommand(sdiCommand)  # Command SDI-12 Moisture Probe to take a reading of all it's sensors 
+    self.aquaCheckSDI12.sendCommand(sdiCommand)
 
     while(self.aquaCheckSDI12.available()):
       self.sdiResponse += self.aquaCheckSDI12.read().decode();
 
-     # break response into corrisponding components
+    # break response into corrisponding components
     try:
-      if (len(self.sdiResponse) >= 7 and self.sdiResponse[-2] == '\r' and self.sdiResponse[-1] == '\n'):   
+      if (len(self.sdiResponse) >= 7 and 
+              self.sdiResponse[-2] == '\r' and 
+              self.sdiResponse[-1] == '\n'):
         self.sdiMeasurements = int(self.sdiResponse[-3])
         self.sdiTimeToCheck = int(self.sdiResponse[-6:-3])
         self.sdiAddress = self.sdiResponse[-7]
       else:
-        debugThis("_issueCommand did not get a good response")
+        debugThis("_issueCommand did not get a good response: "
+                  "{}".format(self.sdiResponse))
         raise tenacity.TryAgain  
-    except:
-      debugThis("_issueCommand failed somehow")
+    except Exception as err:
+      debugThis("_issueCommand failed somehow: {}".format(err))
       raise tenacity.TryAgain  
 
     timestamp = time.perf_counter()
     while(time.perf_counter() - timestamp <= self.sdiTimeToCheck):
-      # /* With the new polling flow of the SDI12 library this needs to be reworked to call it
-      #  * right now we just drop through after the timeout because no interrupts. Technically it 
-      #  * still works, but it would be more responsive if we update it
+      # /* With the new polling flow of the SDI12 library this needs to be
+      #  * reworked to call it right now we just drop through after the 
+      #  * timeout because no interrupts. Technically it still works, but
+      #  * it would be more responsive if we update it.
       #  */
       self.sdiResponse = ""
 
       while(self.aquaCheckSDI12.available()):
         self.sdiResponse += self.aquaCheckSDI12.read().decode();
       try:
-        if (self.sdiResponse[0] == self.sdiAddress and self.sdiResponse[1] == '\r' and self.sdiResponse[2] == '\n'):
-          break;              # Upon receipt of a service request drop out of for loop 
+        if (self.sdiResponse[0] == self.sdiAddress and 
+            self.sdiResponse[1] == '\r' and 
+            self.sdiResponse[2] == '\n'):
+          break  # Upon receipt of a service request drop out of for loop
       except IndexError:
         pass
 
@@ -355,7 +361,7 @@ class SDI12AquaCheck:
       dataBackup[3:6] = [[0.0],[0.0],[0.0]]
 
     try:
-      if(readingType == 0):            # 0 for Moisture, 1 for Temperature
+      if(readingType == 0):  # 0 for Moisture, 1 for Temperature
         self.moistureRaw = self.sdiAddress
         for i,x in enumerate(dataBackup):
           y = max(set(x),key=x.count)
@@ -372,39 +378,23 @@ class SDI12AquaCheck:
     except:
       debugThis("Error assigning values")
       self.moistureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      self.moistureRaw = ''
+      self.moistureRaw  = ''
       self.temperatureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      self.temperatureRaw = ''
+      self.temperatureRaw  = ''
 
     self.aquaCheckSDI12.flush()
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _gatherFirstData(self, dataBackup):
     self._issueFirstData()
-    dataBackup[0:3] = [[self.dataResponse0], [self.dataResponse1], [self.dataResponse2]]
-#    r = [re.sub(r'[^0-9\.]','0',self.dataResponse0), re.sub(r'[^0-9\.]','0',self.dataResponse1), re.sub(r'[^0-9\.]','0',self.dataResponse2)]
-#    if len(dataBackup[0])<3 or len(dataBackup[1])<3 or len(dataBackup[2])<3:
-#      for i,x in enumerate(r):
-#        try:
-#          if float(x) < 100.0 and float(x) > 0.0 and len(x) == 8:
-#            dataBackup[i].append(x)
-#        except ValueError:
-#          pass
-#      raise tenacity.TryAgain
+    dataBackup[0:3] = 
+        [[self.dataResponse0], [self.dataResponse1], [self.dataResponse2]]
     
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _gatherSecondData(self, dataBackup):
     self._issueSecondData()
-    dataBackup[3:6] = [[self.dataResponse3], [self.dataResponse4], [self.dataResponse5]]
-#    r = [re.sub(r'[^0-9\.]','0',self.dataResponse3), re.sub(r'[^0-9\.]','0',self.dataResponse4), re.sub(r'[^0-9\.]','0',self.dataResponse5)]
-#    if len(dataBackup[3])<3 or len(dataBackup[4])<3 or len(dataBackup[5])<3:
-#      for i,x in enumerate(r):
-#        try:
-#          if float(x) < 100.0 and float(x) > 0.0 and len(x) == 8:
-#            dataBackup[i+3].append(x)
-#        except ValueError:
-#          pass
-#      raise tenacity.TryAgain
+    dataBackup[3:6] = 
+        [[self.dataResponse3], [self.dataResponse4], [self.dataResponse5]]
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueFirstData(self):
@@ -413,24 +403,29 @@ class SDI12AquaCheck:
     self.sdiResponse = ""
 
     while(self.aquaCheckSDI12.available()):  # build a string of the response
-      self.sdiResponse += self.aquaCheckSDI12.read().decode();
+      self.sdiResponse += self.aquaCheckSDI12.read().decode()
 
     try:
       if (len(self.sdiResponse) > 3):
         self.dataResponse0 = self.sdiResponse[2:10]
         self.dataResponse1 = self.sdiResponse[11:19]
         self.dataResponse2 = self.sdiResponse[20:28]
-        if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or self.dataResponse0[0] == '\0' or self.dataResponse1[0] == '\0' or self.dataResponse2[0] == '\0'):
-          debugThis("_issueFirstData bad response")
+        if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or
+             self.dataResponse0[0] == '\0' or 
+             self.dataResponse1[0] == '\0' or 
+             self.dataResponse2[0] == '\0'):
+          debugThis("_issueFirstData bad response: {}".format(self.sdiResponse))
           raise tenacity.TryAgain
-      elif (self.sdiResponse[0] == self.sdiAddress and self.sdiResponse[1] == '\r' and self.sdiResponse[2] == '\n'):
+      elif (self.sdiResponse[0] == self.sdiAddress and 
+            self.sdiResponse[1] == '\r' and 
+            self.sdiResponse[2] == '\n'):
         debugThis("_issueFirstData null response")
         raise tenacity.TryAgain                   
       else:
         debugThis("_isseFirstData no response")
         raise tenacity.TryAgain  
-    except:
-      debugThis("_issueFirstData failed somehow")
+    except Exception as err:
+      debugThis("_issueFirstData failed somehow: {}".format(err))
       raise tenacity.TryAgain
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
@@ -440,16 +435,21 @@ class SDI12AquaCheck:
     self.sdiResponse = ""
 
     while(self.aquaCheckSDI12.available()):  # build a string of the response
-      self.sdiResponse += self.aquaCheckSDI12.read().decode();
+      self.sdiResponse += self.aquaCheckSDI12.read().decode()
 
     try:
       if (len(self.sdiResponse) > 3):
         self.dataResponse3 = self.sdiResponse[2:10]
         self.dataResponse4 = self.sdiResponse[11:19]
         self.dataResponse5 = self.sdiResponse[20:28]
-        if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or self.dataResponse3[0] == '\0' or self.dataResponse4[0] == '\0' or self.dataResponse5[0] == '\0'):
+        if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or
+             self.dataResponse3[0] == '\0' or 
+             self.dataResponse4[0] == '\0' or 
+             self.dataResponse5[0] == '\0'):
           raise tenacity.TryAgain
-      elif (self.sdiResponse[0] == self.sdiAddress and self.sdiResponse[1] == '\r' and self.sdiResponse[2] == '\n'):
+      elif (self.sdiResponse[0] == self.sdiAddress and 
+            self.sdiResponse[1] == '\r' and 
+            self.sdiResponse[2] == '\n'):
         raise tenacity.TryAgain                     
       else:
         raise tenacity.TryAgain                   
@@ -469,7 +469,9 @@ class AquaCheck(Block):
     def configure(self,context):
         super().configure(context)
         self.logger.debug("Got here with {}".format(self.portNumber()))
-        self.AQ = SDI12AquaCheck(self.portNumber())
+        self.AQ = SDI12AquaCheck(self.portNumber(), 
+                                 sendMarking=self.sendMarking(), 
+                                 rs485=self.rs485())
 
     def process_signals(self, signals):
         for signal in signals:
