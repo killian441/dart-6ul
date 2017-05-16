@@ -78,14 +78,17 @@ class SDI12:
     self._rxBuffer = CirBuffer(self._BUFFER_SIZE)  # Buff for incoming
     self._sendMarking = sendMarking
     self.state = self.SDIState.DISABLED
-    self.uart = serial.Serial(port=None, baudrate=1200,
-                              bytesize=serial.SEVENBITS, 
-                              parity=serial.PARITY_EVEN, 
-                              stopbits=serial.STOPBITS_ONE, 
-                              timeout=3.5)
-    self.uart.port = uartPort  # Uart is not opened automatically if
-                               # initialized with port=None and port 
-                               # defined elsewhere, see serial documentation
+    if isinstance(uartPort, serial.Serial):
+      self.uart = uartPort
+    else:
+      self.uart = serial.Serial(port=None, baudrate=1200,
+                                bytesize=serial.SEVENBITS, 
+                                parity=serial.PARITY_EVEN, 
+                                stopbits=serial.STOPBITS_ONE, 
+                                timeout=3.5)
+      self.uart.port = uartPort # Uart is not opened automatically if
+                                # initialized with port=None and port 
+                                # defined elsewhere, see serial docs
     self.setState(self.SDIState.DISABLED)
 
 # ==================== Data Line States ===============================
@@ -216,13 +219,13 @@ class SDI12AquaCheck:
 # /*
 #  *  Constructor - dataPin is the Arduino pin connected to the SDI12 bus
 #  */ 
-  def __init__(self, dataPin):
+  def __init__(self, dataPin, sendMarking=True):
     self.dataPin = dataPin
     self.sdiMoisture = ""          #// Six 7 digit (8 char) numbers starting with and seperated by a + sign (1 additional char)
     self.sdiTemperature = ""
     self.dataMoisture = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     self.dataTemperature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    self.aquaCheckSDI12 = SDI12(self.dataPin)
+    self.aquaCheckSDI12 = SDI12(self.dataPin, sendMarking)
     self.aquaCheckSDI12.begin()
 
 # /* 
