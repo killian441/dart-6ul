@@ -51,7 +51,7 @@ class CirBuffer:
 
   def available(self):
     if(self._bufferOverflow):
-      return -1;
+      return -1
     else:
       return len(self.data)
 
@@ -131,7 +131,7 @@ class SDI12:
 
   # This function wakes up the entire sensor bus
   def wakeSensors(self):
-    self.setState(self.SDIState.TRANSMITTING); 
+    self.setState(self.SDIState.TRANSMITTING) 
     if self._sendMarking:
       self.uart.baudrate = 600
       self.uart.write(b'\x00')
@@ -139,12 +139,12 @@ class SDI12:
 
   # This function sends out the characters of the String cmd, one by one
   def sendCommand(self, cmd):
-    self.wakeSensors();             # Wake up sensors
+    self.wakeSensors()              # Wake up sensors
     self.uart.write(cmd.encode())   # This sends the command as byte array, 
                                     #  since RX is connected to TX we will see
                                     #  command echoed in input buffer
     self.uart.reset_input_buffer()  # Needed, not exactly sure why
-    self.listen(1, cmd=cmd);        # 16.7ms is the max time for a response to
+    self.listen(1, cmd=cmd)         # 16.7ms is the max time for a response to
                                     #  be received after a command is sent.    
                                     #  However Command gets buffered in the
                                     #  UART so this timing doesn't work
@@ -199,10 +199,10 @@ class SDI12:
   # A method for setting the current object as the active object
   def setActive(self):
     if (self._activeObject != True):
-      self.setState(self.SDIState.HOLDING); 
-      self._activeObject = True;
-      return True;
-    return False;
+      self.setState(self.SDIState.HOLDING) 
+      self._activeObject = True
+      return True
+    return False
 
   # A method for checking if this object is the active object
   def isActive(self):
@@ -309,7 +309,7 @@ class SDI12AquaCheck:
 
     self.aquaCheckSDI12.flush()
 
-    return 0;
+    return 0
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueCommand(self, sdiCommand):
@@ -317,7 +317,7 @@ class SDI12AquaCheck:
     self.aquaCheckSDI12.sendCommand(sdiCommand)
 
     while(self.aquaCheckSDI12.available()):
-      self.sdiResponse += self.aquaCheckSDI12.read().decode();
+      self.sdiResponse += self.aquaCheckSDI12.read().decode()
 
     # break response into corrisponding components
     try:
@@ -337,15 +337,10 @@ class SDI12AquaCheck:
 
     timestamp = time.perf_counter()
     while(time.perf_counter() - timestamp <= self.sdiTimeToCheck):
-      # /* With the new polling flow of the SDI12 library this needs to be
-      #  * reworked to call it right now we just drop through after the 
-      #  * timeout because no interrupts. Technically it still works, but
-      #  * it would be more responsive if we update it.
-      #  */
       self.sdiResponse = ""
-
+      self.aquaCheckSDI12.listen(0.1)
       while(self.aquaCheckSDI12.available()):
-        self.sdiResponse += self.aquaCheckSDI12.read().decode();
+        self.sdiResponse += self.aquaCheckSDI12.read().decode()
       try:
         if (self.sdiResponse[0] == self.sdiAddress and 
             self.sdiResponse[1] == '\r' and 
@@ -381,7 +376,7 @@ class SDI12AquaCheck:
           self.temperatureData[i] = float(y)
           self.temperatureRaw += "+" + y
       else:
-        return -1;
+        return -1
     except:
       debugThis("Error assigning values")
       self.moistureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
