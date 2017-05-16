@@ -151,11 +151,11 @@ class SDI12:
                                     #  perfectly
 
   # This command reads the UART RX buffer for response
-  def listen(self, listenTimeout, cmd=''): # Time to wait in seconds
+  def listen(self, listenTimeout, cmd=''):
     self.setState(self.SDIState.LISTENING)
-    self.uart.timeout = (listenTimeout)     # Listen for upto 'listenTimeout'
-                                            #  seconds after each char for a 
-                                            #  subsequent char
+    self.uart.timeout = (listenTimeout)   # Listen for upto 'listenTimeout'
+                                          #  seconds after each char for a 
+                                          #  subsequent char
     dataRaw = [self.uart.read()]
     while dataRaw[-1] is not b'':
       self._rxBuffer.append(dataRaw[-1])
@@ -164,6 +164,8 @@ class SDI12:
       dataRaw.pop()
 
     #Here we subtract the cmd from the response, if applicable
+    # TODO: If multiple commands are executed before the buffer is depleted
+    #  then the command will not be subtracted from the response
     if cmd is not '':
       rxdata = self._rxBuffer.get()
       for x in range(0,2):
@@ -210,36 +212,42 @@ class SDI12:
 # /* ========== AquaCheck Soil Moisture Probe =========
 #  * Mike Killian, 2017
 #  *
-#  *  TODO: More robust retries, for example not bailing is less than 3 chars is returned before retrying.
+#  *  TODO: More robust retries, move error logging to n.io.
 #  */
 
 
 class SDI12AquaCheck:
-  RETRIES = 2                   #// Define number of retries before giving up on data from the probe       
+  RETRIES = 2   # Number of retries before giving up on data from the probe
 # /*
-#  *  Constructor - dataPin is the Arduino pin connected to the SDI12 bus
+#  *  Constructor:
+#  * 
+#  *    dataBus     - uart used for the SDI12 bus
+#  *    sendMarking - issue marking to wake up sensors at start?
+#  *    rs485       - using hardware rs485?
 #  */ 
-  def __init__(self, dataPin, sendMarking=True):
-    self.dataPin = dataPin
-    self.sdiMoisture = ""          #// Six 7 digit (8 char) numbers starting with and seperated by a + sign (1 additional char)
-    self.sdiTemperature = ""
-    self.dataMoisture = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    self.dataTemperature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    self.aquaCheckSDI12 = SDI12(self.dataPin, sendMarking)
+  def __init__(self, dataBus, sendMarking=True, rs485=False):
+    self.dataBus = dataBus
+    self.moistureRaw     = ""     # Raw response of probe with all sensors
+    self.moistureData    = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    self.temperatureRaw  = ""
+    self.temperatureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    self.aquaCheckSDI12  = SDI12(self.dataBus, sendMarking=sendMarking)
     self.aquaCheckSDI12.begin()
 
 # /* 
 #  *  pollProbe(readingType, address) - samples the AquaCheck sensor
 #  *
 #  *    readingType - 0 for moisture readings, 1 for temperature readings
-#  *    address     - address of sensor to read from, valid addresses are 0-9, a-z, & A-Z
+#  *    address     - address of sensor to read from, default is '0'
 #  *
-#  *  The AquaCheck Moisture Probe is polled for either Moisture or Temperature readings depending
-#  *  on readingType. The address allows for more than one sensor to be connected to the same bus. 
-#  *  (Sensors must have unique addresses when connected to the bus) Data is stored in internal 
-#  *  variables that can then be read. Moisture and temperature data are stored independently and 
-#  *  overwritten when a new poll request is made. The function returns 0 for a successful run, any 
-#  *  other value represents an error.
+#  *  The AquaCheck Moisture Probe is polled for either Moisture or 
+#  *  Temperature readings depending on readingType. The address allows for
+#  *  more than one sensor to be connected to the same bus. (Sensors must 
+#  *  have unique addresses when connected to the bus.) Data is stored in 
+#  *  internal variables that can then be read. Moisture and temperature data
+#  *  are stored independently and overwritten when a new poll request is
+#  *  made. The function returns 0 for a successful run, any other value
+#  *  represents an error.
 #  *
 #  *  Returned errors:
 #  *    1 - Incorrect usage / Unknown failure
@@ -250,30 +258,28 @@ class SDI12AquaCheck:
 #  *    
 #  */
   def pollProbe(self, readingType, address = '0'):
-    sdiCommand = ""         #// String to send, largest command that can be sent is aMC1! (crc not implemented in aquaCheck)
-    self.sdiResponse = ""       #// String for generic responses, max value in response to a D command (non concurrent) is 35
-    self.dataResponse0 = ""      #// Due to a compiler bug these can't all be in an array and used with sscanf
-    self.dataResponse1 = ""      #// Also Arduino sscanf doesn't support floats, so either I mess with the compiler
-    self.dataResponse2 = ""      #// Or I use atof on a char array
+    sdiCommand = ""            # String to send, largest command that can be sent is aMC1! (crc not implemented in aquaCheck)
+    self.sdiResponse   = ""    # String for generic responses, max value in response to a D command (non concurrent) is 35
+    self.dataResponse0 = ""    # Due to a compiler bug these can't all be in an array and used with sscanf
+    self.dataResponse1 = ""    # Also Arduino sscanf doesn't support floats, so either I mess with the compiler
+    self.dataResponse2 = ""    # Or I use atof on a char array
     self.dataResponse3 = ""    
     self.dataResponse4 = ""
     self.dataResponse5 = ""
-    self.sdiAddress = -1            #// Address of the sensor responding, easier to work with as a char vs as an int
-    self.sdiTimeToCheck = -1         #// Time to wait before requesting data, in seconds
-    self.sdiMeasurements = -1        #// Number of measurements expected, should always be 6 for AquaCheck
-
-    retries = self.RETRIES           #// Number of retries if error is detected in response
+    self.sdiAddress      = -1  # Address of the sensor responding, easier to work with as a char vs as an int
+    self.sdiTimeToCheck  = -1  # Time to wait before requesting data, in seconds
+    self.sdiMeasurements = -1  # Number of measurements expected, should always be 6 for AquaCheck
     
-    self.aquaCheckSDI12.flush();  #//clear the line
+    self.aquaCheckSDI12.flush()
 
     if(readingType == 0):
-      self.sdiMoisture = ""
+      self.moistureRaw = ""
       sdiCommand = str(address) + "M0!"
-      self.dataMoisture = [0.0]*6
+      self.moistureData = [0.0]*6
     elif(readingType == 1):
-      self.sdiTemperature = ""
+      self.temperatureRaw = ""
       sdiCommand = str(address) + "M1!"
-      self.dataTemperature = [0.0]*6
+      self.temperatureData = [0.0]*6
     else:
       return -1
 
@@ -294,19 +300,19 @@ class SDI12AquaCheck:
       debugThis(self._issueSecondData.retry.statistics)
       return -1
 
-    self.aquaCheckSDI12.flush();  #//clear the line
+    self.aquaCheckSDI12.flush()
 
     return 0;
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueCommand(self, sdiCommand):
     self.sdiResponse = "" 
-    self.aquaCheckSDI12.sendCommand(sdiCommand);      #// command SDI-12 Moisture Probe to take a reading of all it's sensors 
+    self.aquaCheckSDI12.sendCommand(sdiCommand)  # Command SDI-12 Moisture Probe to take a reading of all it's sensors 
 
     while(self.aquaCheckSDI12.available()):
       self.sdiResponse += self.aquaCheckSDI12.read().decode();
 
-     #//break response into corrisponding components
+     # break response into corrisponding components
     try:
       if (len(self.sdiResponse) >= 7 and self.sdiResponse[-2] == '\r' and self.sdiResponse[-1] == '\n'):   
         self.sdiMeasurements = int(self.sdiResponse[-3])
@@ -331,7 +337,7 @@ class SDI12AquaCheck:
         self.sdiResponse += self.aquaCheckSDI12.read().decode();
       try:
         if (self.sdiResponse[0] == self.sdiAddress and self.sdiResponse[1] == '\r' and self.sdiResponse[2] == '\n'):
-          break;                             #// Upon receipt of a service request drop out of for loop 
+          break;              # Upon receipt of a service request drop out of for loop 
       except IndexError:
         pass
 
@@ -349,26 +355,26 @@ class SDI12AquaCheck:
       dataBackup[3:6] = [[0.0],[0.0],[0.0]]
 
     try:
-      if(readingType == 0):            #// 0 for Moisture, 1 for Temperature
-        self.sdiMoisture = self.sdiAddress
+      if(readingType == 0):            # 0 for Moisture, 1 for Temperature
+        self.moistureRaw = self.sdiAddress
         for i,x in enumerate(dataBackup):
           y = max(set(x),key=x.count)
-          self.dataMoisture[i] = float(y)
-          self.sdiMoisture += "+" + y
+          self.moistureData[i] = float(y)
+          self.moistureRaw += "+" + y
       elif(readingType == 1):
-        self.sdiTemperature = self.sdiAddress
+        self.temperatureRaw = self.sdiAddress
         for i,x in enumerate(dataBackup):
           y = max(set(x),key=x.count)
-          self.dataTemperature[i] = float(y)
-          self.sdiTemperature += "+" + y
+          self.temperatureData[i] = float(y)
+          self.temperatureRaw += "+" + y
       else:
         return -1;
     except:
       debugThis("Error assigning values")
-      self.dataMoisture = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      self.sdiMoisture = ''
-      self.dataTemperature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      self.sdiTemperature = ''
+      self.moistureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      self.moistureRaw = ''
+      self.temperatureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      self.temperatureRaw = ''
 
     self.aquaCheckSDI12.flush()
 
@@ -402,11 +408,11 @@ class SDI12AquaCheck:
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueFirstData(self):
-    self.aquaCheckSDI12.flush();                #// clear the line
-    self.aquaCheckSDI12.sendCommand("0D0!");    #// ask for data from set 0
+    self.aquaCheckSDI12.flush()
+    self.aquaCheckSDI12.sendCommand("0D0!")  # ask for data from set 0
     self.sdiResponse = ""
 
-    while(self.aquaCheckSDI12.available()):     #// build a string of the response
+    while(self.aquaCheckSDI12.available()):  # build a string of the response
       self.sdiResponse += self.aquaCheckSDI12.read().decode();
 
     try:
@@ -429,11 +435,11 @@ class SDI12AquaCheck:
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueSecondData(self):
-    self.aquaCheckSDI12.flush();                #// clear the line
-    self.aquaCheckSDI12.sendCommand("0D1!");    #// ask for data from set 1 
+    self.aquaCheckSDI12.flush()
+    self.aquaCheckSDI12.sendCommand("0D1!")  # ask for data from set 1 
     self.sdiResponse = ""
 
-    while(self.aquaCheckSDI12.available()):     #// build a string of the response
+    while(self.aquaCheckSDI12.available()):  # build a string of the response
       self.sdiResponse += self.aquaCheckSDI12.read().decode();
 
     try:
@@ -461,27 +467,15 @@ class AquaCheck(Block):
     version = VersionProperty('0.0.1')
 
     def configure(self,context):
-        """Overrideable method to be called when the block configures.
-        """
         super().configure(context)
         self.logger.debug("Got here with {}".format(self.portNumber()))
         self.AQ = SDI12AquaCheck(self.portNumber())
 
     def process_signals(self, signals):
-        """Overrideable method to be called when signals are delivered.
-        This method will be called by the block router whenever signals
-        are sent to the block. The method should not return the modified
-        signals, but rather call `notify_signals` so that the router
-        can route them properly.
-        Args:
-            signals (list): A list of signals to be processed by the block
-            input_id: The identifier of the input terminal the signals are
-                being delivered to
-        """
         for signal in signals:
             if self.AQ.pollProbe(0) == 0:
-                #value = self.AQ.sdiMoisture
-                value = self.AQ.dataMoisture
+                #value = self.AQ.moistureRaw
+                value = self.AQ.moistureData
                 results = {self.signalName():value}
                 self.logger.debug("Got results: {}".format(results))
                 try:
