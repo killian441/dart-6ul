@@ -1,1 +1,3 @@
 python-periphery
+pyserial
+tenacity
