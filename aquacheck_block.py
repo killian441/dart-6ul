@@ -39,6 +39,16 @@ class CirBuffer:
     except:
       return -1
 
+  def readline(self):
+    self._bufferOverflow = False
+    try:
+      i = self.data.index(b'\n')+1
+      returnValue = self.data[0:i]
+      self.data = self.data[i:]
+      return returnValue
+    except:
+      return -1
+
   def flush(self):
     self.data = []
     self._bufferOverflow = False
@@ -267,12 +277,7 @@ class SDI12AquaCheck:
   def pollProbe(self, readingType, address = '0'):
     sdiCommand = ""
     self.sdiResponse   = ""
-    self.dataResponse0 = ""
-    self.dataResponse1 = ""
-    self.dataResponse2 = ""
-    self.dataResponse3 = ""
-    self.dataResponse4 = ""
-    self.dataResponse5 = ""
+    self.dataResponse  = ["","","","","",""]
     self.sdiAddress      = -1  # Address of the sensor responding
     self.sdiTimeToCheck  = -1  # Time to wait before requesting data
     self.sdiMeasurements = -1  # Number of measurements expected
@@ -335,6 +340,7 @@ class SDI12AquaCheck:
       debugThis("_issueCommand failed somehow: {}".format(err))
       raise tenacity.TryAgain  
 
+    # Wait for interrupt to notify us data is ready
     timestamp = time.perf_counter()
     while(time.perf_counter() - timestamp <= self.sdiTimeToCheck):
       self.sdiResponse = ""
@@ -350,53 +356,36 @@ class SDI12AquaCheck:
         pass
 
   def _gatherData(self, readingType):
-    dataBackup = [[], [], [], [], [], []]
     try:
-      self._gatherFirstData(dataBackup)
+      self._issueFirstData()
     except:
-      debugThis("_gatherFirstData failed, returned: {}".format(dataBackup))
-      dataBackup[0:3] = [[0.0],[0.0],[0.0]]
+      debugThis("_gatherData failed, returned: {}".format(self.sdiResponse))
     try:
-      self._gatherSecondData(dataBackup)
+      self._issueSecondData()
     except:
-      debugThis("_gatherSecondData failed, returned: {}".format(dataBackup))
-      dataBackup[3:6] = [[0.0],[0.0],[0.0]]
+      debugThis("_gatherData failed, returned: {}".format(self.sdiResponse))
 
     try:
       if(readingType == 0):  # 0 for Moisture, 1 for Temperature
         self.moistureRaw = self.sdiAddress
-        for i,x in enumerate(dataBackup):
-          y = max(set(x),key=x.count)
-          self.moistureData[i] = float(y)
-          self.moistureRaw += "+" + y
+        for i in range(0,6):
+          self.moistureData[i] = float(self.dataResponse[i])
+          self.moistureRaw += "+{}".format(self.dataResponse[i])
       elif(readingType == 1):
         self.temperatureRaw = self.sdiAddress
-        for i,x in enumerate(dataBackup):
-          y = max(set(x),key=x.count)
-          self.temperatureData[i] = float(y)
-          self.temperatureRaw += "+" + y
+        for i in range(0,6):
+          self.temperatureData[i] = float(self.dataResponse[i])
+          self.temperatureRaw += "+{}".format(self.dataResponse[i])
       else:
         return -1
-    except:
-      debugThis("Error assigning values")
+    except Exception as err:
+      debugThis("Error assigning values, {}".format(err))
       self.moistureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       self.moistureRaw  = ''
       self.temperatureData = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       self.temperatureRaw  = ''
 
     self.aquaCheckSDI12.flush()
-
-  @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
-  def _gatherFirstData(self, dataBackup):
-    self._issueFirstData()
-    dataBackup[0:3] = \
-        [[self.dataResponse0], [self.dataResponse1], [self.dataResponse2]]
-    
-  @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
-  def _gatherSecondData(self, dataBackup):
-    self._issueSecondData()
-    dataBackup[3:6] = \
-        [[self.dataResponse3], [self.dataResponse4], [self.dataResponse5]]
 
   @tenacity.retry(stop=tenacity.stop_after_attempt(RETRIES))
   def _issueFirstData(self):
@@ -409,13 +398,13 @@ class SDI12AquaCheck:
 
     try:
       if (len(self.sdiResponse) > 3):
-        self.dataResponse0 = self.sdiResponse[2:10]
-        self.dataResponse1 = self.sdiResponse[11:19]
-        self.dataResponse2 = self.sdiResponse[20:28]
+        self.dataResponse[0] = self.sdiResponse[2:10]
+        self.dataResponse[1] = self.sdiResponse[11:19]
+        self.dataResponse[2] = self.sdiResponse[20:28]
         if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or
-             self.dataResponse0[0] == '\0' or 
-             self.dataResponse1[0] == '\0' or 
-             self.dataResponse2[0] == '\0'):
+             self.dataResponse[0][0] == '\0' or 
+             self.dataResponse[1][0] == '\0' or 
+             self.dataResponse[2][0] == '\0'):
           debugThis("_issueFirstData bad response: {}".format(self.sdiResponse))
           raise tenacity.TryAgain
       elif (self.sdiResponse[0] == self.sdiAddress and 
@@ -441,13 +430,13 @@ class SDI12AquaCheck:
 
     try:
       if (len(self.sdiResponse) > 3):
-        self.dataResponse3 = self.sdiResponse[2:10]
-        self.dataResponse4 = self.sdiResponse[11:19]
-        self.dataResponse5 = self.sdiResponse[20:28]
+        self.dataResponse[3] = self.sdiResponse[2:10]
+        self.dataResponse[4] = self.sdiResponse[11:19]
+        self.dataResponse[5] = self.sdiResponse[20:28]
         if ((self.sdiResponse[-2] != '\r' and self.sdiResponse[-1] != '\n') or
-             self.dataResponse3[0] == '\0' or 
-             self.dataResponse4[0] == '\0' or 
-             self.dataResponse5[0] == '\0'):
+             self.dataResponse[3][0] == '\0' or 
+             self.dataResponse[4][0] == '\0' or 
+             self.dataResponse[5][0] == '\0'):
           raise tenacity.TryAgain
       elif (self.sdiResponse[0] == self.sdiAddress and 
             self.sdiResponse[1] == '\r' and 
@@ -478,7 +467,7 @@ class AquaCheck(Block):
     def process_signals(self, signals):
         for signal in signals:
             if self.AQ.pollProbe(0) == 0:
-                #value = self.AQ.moistureRaw
+                #TODO: Add polling for temperature
                 value = self.AQ.moistureData
                 results = {self.signalName():value}
                 self.logger.debug("Got results: {}".format(results))
